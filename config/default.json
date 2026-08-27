@@ -1,0 +1,42 @@
+{
+  "strategy": {
+    "enabled": true,
+    "symbol": "XAUUSD",
+    "timeframe": "M1",
+    "direction": "buy",
+    "deviation_points": 20,
+    "magic_number": 26082026,
+    "poll_interval_ms": 1,
+    "closed_leg_behavior": "same_leg",
+    "stop_after_entry": false,
+    "legs": [
+      {
+        "enabled": true,
+        "volume": 0.01,
+        "stop_loss": {
+          "mode": "points",
+          "value": 0.01
+        },
+        "take_profit": {
+          "mode": "points",
+          "value": 5.0
+        }
+      },
+      {
+        "enabled": false,
+        "volume": 0.02,
+        "stop_loss": {
+          "mode": "percent",
+          "value": 0.5
+        },
+        "take_profit": {
+          "mode": "percent",
+          "value": 1.0
+        }
+      }
+    ]
+  },
+  "database_path": "data\\trading.db",
+  "host": "127.0.0.1",
+  "port": 8765
+}
