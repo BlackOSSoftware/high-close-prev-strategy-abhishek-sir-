@@ -6,5 +6,5 @@ apps/web/node_modules/
 apps/web/.next/
 data/*.db*
 logs/
+.start-state/
 .env
-

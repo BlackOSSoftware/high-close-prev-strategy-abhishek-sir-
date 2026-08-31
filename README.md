@@ -55,9 +55,14 @@ an in-memory queue, so disk work does not delay an order.
 From PowerShell in the repository root:
 
 ```powershell
-.\scripts\setup.ps1
-.\scripts\start.ps1
+.\start.cmd
 ```
+
+`start.cmd` latest Git changes fast-forward pulls, installs only changed Python/Node
+dependencies, rebuilds only when web source changes, and then starts both services. Running it
+again skips completed work and does not start duplicate processes. Logs are written to `logs/`.
+The UI opens automatically in a dedicated Chrome app-style window without normal browser tabs
+or an address bar (Edge app mode is used as a fallback when Chrome is unavailable).
 
 Open `http://127.0.0.1:3000`. Configuration is stored in `config/default.json`; runtime
 events are stored in `data/trading.db`.
