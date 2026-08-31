@@ -89,7 +89,7 @@ function LiveSignalChart({ dashboard, direction }: { dashboard: NonNullable<Retu
 }
 
 export function TradingConsole({ view }: { view: "dashboard" | "settings" }) {
-  const { connected, config, setConfig, market, engineRunning, dashboard, chartHistory, requestChart, symbols, searchSymbols, closePosition, saveStatus, save } = useLiveEngine();
+  const { connected, config, setConfig, market, engineRunning, dashboard, chartHistory, requestChart, symbols, searchSymbols, closePosition, saveStatus, save, errorNotice, dismissError } = useLiveEngine();
   const [symbolOpen, setSymbolOpen] = useState(false);
   const [theme, setTheme] = useState<"day" | "night">("day");
   const [legDrafts, setLegDrafts] = useState<Record<number, StrategyConfig["legs"][number]>>({});
@@ -112,7 +112,7 @@ export function TradingConsole({ view }: { view: "dashboard" | "settings" }) {
     return () => clearTimeout(timer);
   }, [config, searchSymbols, symbolOpen]);
   if (!config) {
-    return <main className="loading">Connecting to local trading engine…</main>;
+    return <main className="loading">Connecting to local trading engine…{errorNotice && <ErrorPopup title={errorNotice.title} message={errorNotice.message} onClose={dismissError} />}</main>;
   }
 
   const patch = (value: Partial<StrategyConfig>) => setConfig({ ...config, ...value });
@@ -160,6 +160,7 @@ export function TradingConsole({ view }: { view: "dashboard" | "settings" }) {
 
   return (
     <div className="app-shell">
+      {errorNotice && <ErrorPopup title={errorNotice.title} message={errorNotice.message} onClose={dismissError} />}
       <aside className="sidebar">
         <div className="brand">
           <span className="brand-mark">P</span>
@@ -307,6 +308,14 @@ export function TradingConsole({ view }: { view: "dashboard" | "settings" }) {
     </main>
     </div>
   );
+}
+
+function ErrorPopup({ title, message, onClose }: { title: string; message: string; onClose: () => void }) {
+  return <div className="error-popup" role="alertdialog" aria-live="assertive" aria-label={title}>
+    <span className="error-popup-icon">!</span>
+    <div><strong>{title}</strong><p>{message}</p></div>
+    <button type="button" onClick={onClose} aria-label="Dismiss error">×</button>
+  </div>;
 }
 
 export default function DashboardPage() {

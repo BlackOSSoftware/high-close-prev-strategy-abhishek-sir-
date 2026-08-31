@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { BrokerSymbol, ChartCandle, DashboardSnapshot, LiveEvent, StrategyConfig } from "./types";
 
+export type EngineNotice = { id: number; title: string; message: string };
+
 export function useLiveEngine() {
   const socket = useRef<WebSocket | null>(null);
   const reconnect = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -15,15 +17,29 @@ export function useLiveEngine() {
   const [dashboard, setDashboard] = useState<DashboardSnapshot | null>(null);
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "updated">("idle");
   const [chartHistory, setChartHistory] = useState<{ timeframe: string; candles: ChartCandle[] } | null>(null);
+  const [errorNotice, setErrorNotice] = useState<EngineNotice | null>(null);
+
+  const showError = useCallback((title: string, message: string) => {
+    setErrorNotice({ id: Date.now(), title, message });
+  }, []);
 
   useEffect(() => {
     let disposed = false;
     const connect = () => {
       const ws = new WebSocket("ws://127.0.0.1:8765/live");
       socket.current = ws;
-      ws.onopen = () => setConnected(true);
+      ws.onopen = () => {
+        setConnected(true);
+        setErrorNotice((current) => current?.title === "Connection lost" ? null : current);
+      };
       ws.onmessage = ({ data }) => {
-        const event = JSON.parse(data) as LiveEvent;
+        let event: LiveEvent;
+        try {
+          event = JSON.parse(data) as LiveEvent;
+        } catch {
+          showError("Invalid engine response", "Trading engine sent unreadable data. Check engine logs.");
+          return;
+        }
         if (event.type === "snapshot") {
           const payload = event.payload as unknown as { config: StrategyConfig; events: LiveEvent[]; engine: { running: boolean }; market: { bid: number; ask: number; trend: "buy" | "sell"; time_msc: number } | null; dashboard: DashboardSnapshot | null };
           setConfig(payload.config);
@@ -43,18 +59,31 @@ export function useLiveEngine() {
         } else if (event.type === "engine_status") {
           setEngineRunning(Boolean(event.payload.running));
         } else if (event.type === "symbol_results") {
-          const value = event.payload as unknown as { items: BrokerSymbol[] };
+          const value = event.payload as unknown as { items: BrokerSymbol[]; error?: string };
           setSymbols(value.items);
+          if (value.error) showError("Symbol search failed", value.error);
         } else if (event.type === "dashboard_snapshot") {
           setDashboard(event.payload as unknown as DashboardSnapshot);
         } else if (event.type === "chart_history") {
           setChartHistory(event.payload as unknown as { timeframe: string; candles: ChartCandle[] });
+        } else if (["engine_error", "chart_error", "order_rejected", "position_close_rejected"].includes(event.type)) {
+          const message = typeof event.payload.message === "string" ? event.payload.message : "An unknown trading engine error occurred.";
+          const titles: Record<string, string> = {
+            engine_error: "Trading engine error",
+            chart_error: "Chart loading failed",
+            order_rejected: "Order rejected",
+            position_close_rejected: "Position close failed",
+          };
+          showError(titles[event.type], message);
+          setEvents((current) => [event, ...current].slice(0, 100));
         } else {
           setEvents((current) => [event, ...current].slice(0, 100));
         }
       };
+      ws.onerror = () => showError("Connection error", "Could not communicate with the local trading engine.");
       ws.onclose = () => {
         setConnected(false);
+        showError("Connection lost", "Trading engine connection closed. Reconnecting automatically…");
         if (!disposed) reconnect.current = setTimeout(connect, 1000);
       };
     };
@@ -64,7 +93,7 @@ export function useLiveEngine() {
       if (reconnect.current) clearTimeout(reconnect.current);
       socket.current?.close();
     };
-  }, []);
+  }, [showError]);
 
   const save = useCallback((value: StrategyConfig) => {
     setSaveStatus("saving");
@@ -84,5 +113,5 @@ export function useLiveEngine() {
     socket.current?.send(JSON.stringify({ type: "request_chart", payload: { timeframe } }));
   }, []);
 
-  return { connected, config, setConfig, events, market, engineRunning, dashboard, chartHistory, requestChart, symbols, searchSymbols, closePosition, saveStatus, save };
+  return { connected, config, setConfig, events, market, engineRunning, dashboard, chartHistory, requestChart, symbols, searchSymbols, closePosition, saveStatus, save, errorNotice, dismissError: () => setErrorNotice(null) };
 }

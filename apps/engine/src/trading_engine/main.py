@@ -14,6 +14,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from trading_engine.config_store import ConfigStore
 from trading_engine.domain.config import StrategyConfig
 from trading_engine.infrastructure.database import AsyncDatabaseWriter, recent_events
+from trading_engine.live_events import encode_live_event
 from trading_engine.services.engine import TradingEngine
 
 CONFIG_PATH = Path(os.getenv("PHLC_CONFIG", "config/default.json"))
@@ -28,13 +29,16 @@ runtime_state: dict[str, Any] = {
 
 
 def publish(event: dict[str, Any]) -> None:
-    if event["type"] == "engine_status":
-        runtime_state["engine"] = event["payload"]
-    elif event["type"] == "market_tick":
-        runtime_state["market"] = event["payload"]
-    elif event["type"] == "dashboard_snapshot":
-        runtime_state["dashboard"] = event["payload"]
-    outbound.put(event)
+    # Domain events can contain datetime values nested inside dataclasses.
+    # Encode once at the process boundary so every live message is JSON-safe.
+    encoded_event = encode_live_event(event)
+    if encoded_event["type"] == "engine_status":
+        runtime_state["engine"] = encoded_event["payload"]
+    elif encoded_event["type"] == "market_tick":
+        runtime_state["market"] = encoded_event["payload"]
+    elif encoded_event["type"] == "dashboard_snapshot":
+        runtime_state["dashboard"] = encoded_event["payload"]
+    outbound.put(encoded_event)
 
 
 database = AsyncDatabaseWriter(app_config.database_path)
