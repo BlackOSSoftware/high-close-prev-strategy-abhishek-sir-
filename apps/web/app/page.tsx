@@ -91,6 +91,7 @@ function LiveSignalChart({ dashboard, direction }: { dashboard: NonNullable<Retu
 export function TradingConsole({ view }: { view: "dashboard" | "settings" }) {
   const { connected, config, setConfig, market, engineRunning, engineStatus, dashboard, chartHistory, requestChart, symbols, symbolSearchState, symbolSearchError, searchSymbols, closePosition, saveStatus, save, reconnectMt5, errorNotices, dismissError, dismissAllErrors } = useLiveEngine();
   const [symbolOpen, setSymbolOpen] = useState(false);
+  const [symbolQuery, setSymbolQuery] = useState("");
   const [theme, setTheme] = useState<"day" | "night">("day");
   const [legDrafts, setLegDrafts] = useState<Record<number, StrategyConfig["legs"][number]>>({});
   const [expandedLeg, setExpandedLeg] = useState<number | null>(null);
@@ -108,9 +109,12 @@ export function TradingConsole({ view }: { view: "dashboard" | "settings" }) {
   };
   useEffect(() => {
     if (!symbolOpen || !config) return;
-    const timer = setTimeout(() => searchSymbols(config.symbol), 180);
+    const timer = setTimeout(() => searchSymbols(symbolQuery), 180);
     return () => clearTimeout(timer);
-  }, [config, searchSymbols, symbolOpen]);
+  }, [config, searchSymbols, symbolOpen, symbolQuery]);
+  useEffect(() => {
+    if (config && !symbolOpen) setSymbolQuery(config.symbol);
+  }, [config, symbolOpen]);
   if (!config) {
     return <main className="loading">Connecting to local trading engine…{errorNotices.length > 0 && <ErrorPanel notices={errorNotices} onClose={dismissError} onCloseAll={dismissAllErrors} />}</main>;
   }
@@ -241,12 +245,12 @@ export function TradingConsole({ view }: { view: "dashboard" | "settings" }) {
             <button className="primary" disabled={!connected} onClick={() => save(config)}>Apply settings</button>
           </div>
           <div className="fields market-fields">
-            <label>Symbol<div className="input-shell symbol-search"><Icon name="symbol"/><input autoComplete="off" value={config.symbol} onFocus={() => { setSymbolOpen(true); searchSymbols(config.symbol); }} onBlur={() => setTimeout(() => setSymbolOpen(false), 150)} onChange={(e) => { patch({ symbol: e.target.value.toUpperCase() }); setSymbolOpen(true); }} />
+            <label>Symbol<div className="input-shell symbol-search"><Icon name="symbol"/><input autoComplete="off" value={symbolQuery} onFocus={() => { setSymbolQuery(config.symbol); setSymbolOpen(true); }} onBlur={() => setTimeout(() => setSymbolOpen(false), 150)} onChange={(e) => { setSymbolQuery(e.target.value.toUpperCase()); setSymbolOpen(true); }} />
               {symbolOpen && <div className="symbol-results">
                 {symbolSearchState === "searching" && <div className="symbol-empty">Searching MT5 broker symbols…</div>}
                 {symbolSearchState === "error" && <div className="symbol-empty symbol-error">{symbolSearchError}</div>}
                 {symbolSearchState === "done" && symbols.length === 0 && <div className="symbol-empty">No matching symbol found on this broker</div>}
-                {symbols.map((symbol) => <button key={symbol.name} onMouseDown={(event) => event.preventDefault()} onClick={() => { patch({ symbol: symbol.name }); setSymbolOpen(false); }}>
+                {symbols.map((symbol) => <button key={symbol.name} onMouseDown={(event) => event.preventDefault()} onClick={() => { patch({ symbol: symbol.name }); setSymbolQuery(symbol.name); setSymbolOpen(false); }}>
                   <span><strong>{symbol.name}</strong><small>{symbol.description || "Broker symbol"}</small></span>
                   <em>{symbol.currency}</em>
                 </button>)}

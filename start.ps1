@@ -19,7 +19,7 @@ $StateFile = Join-Path $StateDir "state.json"
 function Write-Step([string]$Message) { Write-Host "`n==> $Message" -ForegroundColor Cyan }
 function Require-Command([string]$Name, [string]$InstallHint) {
     if (-not (Get-Command $Name -ErrorAction SilentlyContinue)) {
-        throw "'$Name' nahi mila. $InstallHint"
+        throw "'$Name' was not found. $InstallHint"
     }
 }
 function Get-CombinedHash([string[]]$Paths) {
@@ -61,14 +61,14 @@ function Wait-ForPort([int]$Port, [System.Diagnostics.Process]$Process, [string]
     for ($Attempt = 0; $Attempt -lt 30; $Attempt++) {
         if ($Process.HasExited) {
             $Tail = if (Test-Path $ErrorLog) { (Get-Content $ErrorLog -Tail 30) -join "`n" } else { "No error log created." }
-            throw "$Name start nahi hua (exit $($Process.ExitCode)).`n$Tail"
+            throw "$Name failed to start (exit $($Process.ExitCode)).`n$Tail"
         }
         $Listening = Get-NetTCPConnection -State Listen -LocalPort $Port -ErrorAction SilentlyContinue
         if ($Listening) { return }
         Start-Sleep -Milliseconds 500
         $Process.Refresh()
     }
-    throw "$Name port $Port par 15 seconds me ready nahi hua. Log: $ErrorLog"
+    throw "$Name did not become ready on port $Port within 15 seconds. Log: $ErrorLog"
 }
 function Open-SoftwareWindow([string]$Url) {
     $ChromePaths = @(
@@ -97,19 +97,19 @@ function Open-SoftwareWindow([string]$Url) {
     }
 
     Start-Process $Url
-    Write-Host "App-mode browser nahi mila; default browser opened." -ForegroundColor Yellow
+    Write-Host "No app-mode browser was found; opened the default browser." -ForegroundColor Yellow
     return $null
 }
 
 try {
     Set-Location $ProjectRoot
     New-Item -ItemType Directory -Force -Path $StateDir, $LogsDir | Out-Null
-    Require-Command "git" "Git install karke dobara start.cmd chalayein."
-    Require-Command "node" "Node.js 22+ install karke dobara start.cmd chalayein."
-    Require-Command "npm.cmd" "Node.js/npm install karke dobara start.cmd chalayein."
+    Require-Command "git" "Install Git, then run start.cmd again."
+    Require-Command "node" "Install Node.js 22 or newer, then run start.cmd again."
+    Require-Command "npm.cmd" "Install Node.js/npm, then run start.cmd again."
 
     $NodeMajor = [int]((& node --version).Trim().TrimStart('v').Split('.')[0])
-    if ($NodeMajor -lt 22) { throw "Node.js 22+ required hai; installed version: $(& node --version)" }
+    if ($NodeMajor -lt 22) { throw "Node.js 22 or newer is required. Installed version: $(& node --version)" }
 
     if (-not $SkipPull) {
         Write-Step "Latest code check"
@@ -117,25 +117,25 @@ try {
         $Remote = (& git remote).Trim()
         if ($Branch -and $Remote) {
             & git pull --ff-only
-            if ($LASTEXITCODE -ne 0) { throw "git pull fail hua. Local changes/diverged branch ko resolve karke retry karein." }
-        } else { Write-Host "Git branch/remote nahi hai; pull skip." -ForegroundColor Yellow }
+            if ($LASTEXITCODE -ne 0) { throw "Git pull failed. Resolve local changes or a diverged branch, then retry." }
+        } else { Write-Host "No Git branch or remote is configured; skipping pull." -ForegroundColor Yellow }
     }
 
     $PythonCommand = Get-Command "py" -ErrorAction SilentlyContinue
     if (-not $PythonCommand) { $PythonCommand = Get-Command "python" -ErrorAction SilentlyContinue }
     if (-not $PythonCommand -and -not (Test-Path $PythonExe)) {
-        throw "Python 3.11-3.13 nahi mila. Python install karke dobara start.cmd chalayein."
+        throw "Python 3.11-3.13 was not found. Install Python, then run start.cmd again."
     }
     if (-not (Test-Path $PythonExe)) {
         Write-Step "Python virtual environment create"
         if ($PythonCommand.Name -eq "py.exe") { & $PythonCommand.Source -3 -m venv $VenvRoot }
         else { & $PythonCommand.Source -m venv $VenvRoot }
-        if ($LASTEXITCODE -ne 0) { throw "Python virtual environment create nahi hua." }
+        if ($LASTEXITCODE -ne 0) { throw "Failed to create the Python virtual environment." }
     }
 
     $PythonVersion = (& $PythonExe -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')").Trim()
     if ([version]$PythonVersion -lt [version]"3.11" -or [version]$PythonVersion -ge [version]"3.14") {
-        throw "Python 3.11-3.13 required hai; virtual environment me $PythonVersion hai. .venv remove/recreate karein."
+        throw "Python 3.11-3.13 is required. The virtual environment uses $PythonVersion; recreate .venv with a supported version."
     }
 
     $State = @{}
@@ -149,16 +149,16 @@ try {
     if ($ForceSetup -or $State.pythonHash -ne $PythonHash) {
         Write-Step "Python dependencies install/update"
         & $PythonExe -m pip install --disable-pip-version-check -e "$EngineRoot[dev]"
-        if ($LASTEXITCODE -ne 0) { throw "Python dependencies install fail hua." }
-    } else { Write-Host "Python dependencies unchanged - skip." -ForegroundColor DarkGray }
+        if ($LASTEXITCODE -ne 0) { throw "Failed to install Python dependencies." }
+    } else { Write-Host "Python dependencies are unchanged; skipping installation." -ForegroundColor DarkGray }
 
     if ($ForceSetup -or $State.npmHash -ne $NpmHash -or -not (Test-Path (Join-Path $WebRoot "node_modules"))) {
         Write-Step "Node dependencies install"
         Push-Location $WebRoot
         try { & npm.cmd ci --no-audit --no-fund }
         finally { Pop-Location }
-        if ($LASTEXITCODE -ne 0) { throw "Node dependencies install fail hua." }
-    } else { Write-Host "Node dependencies unchanged - skip." -ForegroundColor DarkGray }
+        if ($LASTEXITCODE -ne 0) { throw "Failed to install Node dependencies." }
+    } else { Write-Host "Node dependencies are unchanged; skipping installation." -ForegroundColor DarkGray }
 
     $EngineHash = Get-EngineSourceHash
     $WebHash = Get-WebSourceHash
@@ -169,8 +169,8 @@ try {
         Push-Location $WebRoot
         try { & npm.cmd run build }
         finally { Pop-Location }
-        if ($LASTEXITCODE -ne 0) { throw "Web build fail hua." }
-    } else { Write-Host "Build unchanged - skip." -ForegroundColor DarkGray }
+        if ($LASTEXITCODE -ne 0) { throw "The web production build failed." }
+    } else { Write-Host "Web source is unchanged; skipping the build." -ForegroundColor DarkGray }
 
     @{ pythonHash = $PythonHash; npmHash = $NpmHash; engineHash = $EngineHash; webHash = $WebHash; completedAt = (Get-Date).ToString("o") } |
         ConvertTo-Json | Set-Content -Encoding UTF8 $StateFile
@@ -200,7 +200,7 @@ try {
         $EngineProcess = Start-Process -FilePath $PythonExe -ArgumentList "-m", "trading_engine.main" -WorkingDirectory $ProjectRoot -WindowStyle Hidden -RedirectStandardOutput $EngineOut -RedirectStandardError $EngineErr -PassThru
         Set-Content $EnginePidFile $EngineProcess.Id
         Wait-ForPort $EnginePort $EngineProcess "Trading engine" $EngineErr
-    } else { Write-Host "Trading engine already running (PID $($EngineProcess.Id)) - skip." -ForegroundColor DarkGray }
+    } else { Write-Host "Trading engine is already running (PID $($EngineProcess.Id)); skipping startup." -ForegroundColor DarkGray }
 
     if (-not $WebProcess) {
         Write-Step "Web software start"
@@ -209,16 +209,16 @@ try {
         $WebProcess = Start-Process -FilePath "npm.cmd" -ArgumentList "run", "start" -WorkingDirectory $WebRoot -WindowStyle Hidden -RedirectStandardOutput $WebOut -RedirectStandardError $WebErr -PassThru
         Set-Content $WebPidFile $WebProcess.Id
         Wait-ForPort 3000 $WebProcess "Web software" $WebErr
-    } else { Write-Host "Web software already running (PID $($WebProcess.Id)) - skip." -ForegroundColor DarkGray }
+    } else { Write-Host "Web software is already running (PID $($WebProcess.Id)); skipping startup." -ForegroundColor DarkGray }
 
     Write-Host "`nREADY: http://127.0.0.1:3000" -ForegroundColor Green
     Write-Host "Logs: $LogsDir" -ForegroundColor DarkGray
     if (-not $NoBrowser) {
         $BrowserProcess = Open-SoftwareWindow "http://127.0.0.1:3000"
         if ($BrowserProcess) {
-            Write-Host "App window close karne par poora software stop ho jayega." -ForegroundColor Yellow
+            Write-Host "Closing this application window will stop the web server and trading engine." -ForegroundColor Yellow
             $BrowserProcess.WaitForExit()
-            Write-Step "App window closed - software stop"
+            Write-Step "Application window closed - stopping services"
             Stop-ManagedProcess $WebPidFile "web software"
             Stop-ManagedProcess $EnginePidFile "trading engine"
             Write-Host "Software completely stopped." -ForegroundColor Green
