@@ -37,6 +37,12 @@ function Get-WebSourceHash {
     } | Sort-Object FullName | Select-Object -ExpandProperty FullName)
     return Get-CombinedHash $Files
 }
+function Get-EngineSourceHash {
+    $Files = @(Get-ChildItem (Join-Path $EngineRoot "src") -Recurse -File | Where-Object {
+        $_.FullName -notmatch '[\\/](\.pytest_cache|__pycache__)[\\/]'
+    } | Sort-Object FullName | Select-Object -ExpandProperty FullName)
+    return Get-CombinedHash $Files
+}
 function Test-ProcessFromFile([string]$Path) {
     if (-not (Test-Path $Path)) { return $null }
     $SavedPid = (Get-Content $Path -ErrorAction SilentlyContinue | Select-Object -First 1)
@@ -154,8 +160,11 @@ try {
         if ($LASTEXITCODE -ne 0) { throw "Node dependencies install fail hua." }
     } else { Write-Host "Node dependencies unchanged - skip." -ForegroundColor DarkGray }
 
+    $EngineHash = Get-EngineSourceHash
     $WebHash = Get-WebSourceHash
-    if ($ForceSetup -or $State.webHash -ne $WebHash -or -not (Test-Path (Join-Path $WebRoot ".next\BUILD_ID"))) {
+    $EngineChanged = $ForceSetup -or $State.engineHash -ne $EngineHash
+    $WebChanged = $ForceSetup -or $State.webHash -ne $WebHash -or -not (Test-Path (Join-Path $WebRoot ".next\BUILD_ID"))
+    if ($WebChanged) {
         Write-Step "Production web build"
         Push-Location $WebRoot
         try { & npm.cmd run build }
@@ -163,7 +172,7 @@ try {
         if ($LASTEXITCODE -ne 0) { throw "Web build fail hua." }
     } else { Write-Host "Build unchanged - skip." -ForegroundColor DarkGray }
 
-    @{ pythonHash = $PythonHash; npmHash = $NpmHash; webHash = $WebHash; completedAt = (Get-Date).ToString("o") } |
+    @{ pythonHash = $PythonHash; npmHash = $NpmHash; engineHash = $EngineHash; webHash = $WebHash; completedAt = (Get-Date).ToString("o") } |
         ConvertTo-Json | Set-Content -Encoding UTF8 $StateFile
 
     $Config = Get-Content (Join-Path $ProjectRoot "config\default.json") -Raw | ConvertFrom-Json
@@ -172,6 +181,17 @@ try {
     $WebPidFile = Join-Path $StateDir "web.pid"
     $EngineProcess = Test-ProcessFromFile $EnginePidFile
     $WebProcess = Test-ProcessFromFile $WebPidFile
+
+    if ($EngineChanged -and $EngineProcess) {
+        Write-Step "Updated engine restart"
+        Stop-ManagedProcess $EnginePidFile "old trading engine"
+        $EngineProcess = $null
+    }
+    if ($WebChanged -and $WebProcess) {
+        Write-Step "Updated web software restart"
+        Stop-ManagedProcess $WebPidFile "old web software"
+        $WebProcess = $null
+    }
 
     if (-not $EngineProcess) {
         Write-Step "Trading engine start"
