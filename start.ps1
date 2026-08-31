@@ -43,6 +43,14 @@ function Test-ProcessFromFile([string]$Path) {
     if (-not $SavedPid) { return $null }
     return Get-Process -Id ([int]$SavedPid) -ErrorAction SilentlyContinue
 }
+function Stop-ManagedProcess([string]$PidFile, [string]$Name) {
+    $ManagedProcess = Test-ProcessFromFile $PidFile
+    if ($ManagedProcess) {
+        Write-Host "Stopping $Name (PID $($ManagedProcess.Id))..." -ForegroundColor DarkGray
+        & taskkill.exe /PID $ManagedProcess.Id /T /F 2>$null | Out-Null
+    }
+    Remove-Item -LiteralPath $PidFile -Force -ErrorAction SilentlyContinue
+}
 function Wait-ForPort([int]$Port, [System.Diagnostics.Process]$Process, [string]$Name, [string]$ErrorLog) {
     for ($Attempt = 0; $Attempt -lt 30; $Attempt++) {
         if ($Process.HasExited) {
@@ -64,9 +72,10 @@ function Open-SoftwareWindow([string]$Url) {
     )
     $Chrome = $ChromePaths | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
     if ($Chrome) {
-        Start-Process -FilePath $Chrome -ArgumentList "--app=$Url", "--start-maximized"
+        $ProfileDir = Join-Path $StateDir "chrome-app-profile"
+        $Browser = Start-Process -FilePath $Chrome -ArgumentList "--app=$Url", "--start-maximized", "--user-data-dir=`"$ProfileDir`"", "--no-first-run", "--disable-background-mode" -PassThru
         Write-Host "Chrome software window opened." -ForegroundColor DarkGray
-        return
+        return $Browser
     }
 
     $EdgePaths = @(
@@ -75,13 +84,15 @@ function Open-SoftwareWindow([string]$Url) {
     )
     $Edge = $EdgePaths | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
     if ($Edge) {
-        Start-Process -FilePath $Edge -ArgumentList "--app=$Url", "--start-maximized"
+        $ProfileDir = Join-Path $StateDir "edge-app-profile"
+        $Browser = Start-Process -FilePath $Edge -ArgumentList "--app=$Url", "--start-maximized", "--user-data-dir=`"$ProfileDir`"", "--no-first-run", "--disable-background-mode" -PassThru
         Write-Host "Edge software window opened (Chrome was not found)." -ForegroundColor DarkGray
-        return
+        return $Browser
     }
 
     Start-Process $Url
     Write-Host "App-mode browser nahi mila; default browser opened." -ForegroundColor Yellow
+    return $null
 }
 
 try {
@@ -182,7 +193,17 @@ try {
 
     Write-Host "`nREADY: http://127.0.0.1:3000" -ForegroundColor Green
     Write-Host "Logs: $LogsDir" -ForegroundColor DarkGray
-    if (-not $NoBrowser) { Open-SoftwareWindow "http://127.0.0.1:3000" }
+    if (-not $NoBrowser) {
+        $BrowserProcess = Open-SoftwareWindow "http://127.0.0.1:3000"
+        if ($BrowserProcess) {
+            Write-Host "App window close karne par poora software stop ho jayega." -ForegroundColor Yellow
+            $BrowserProcess.WaitForExit()
+            Write-Step "App window closed - software stop"
+            Stop-ManagedProcess $WebPidFile "web software"
+            Stop-ManagedProcess $EnginePidFile "trading engine"
+            Write-Host "Software completely stopped." -ForegroundColor Green
+        }
+    }
     exit 0
 } catch {
     Write-Host "`nSTARTUP ERROR: $($_.Exception.Message)" -ForegroundColor Red
