@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { BrokerSymbol, ChartCandle, DashboardSnapshot, LiveEvent, StrategyConfig } from "./types";
 
 export type EngineNotice = { id: number; title: string; message: string };
-export type EngineStatus = { running: boolean; connected: boolean; terminal?: string; broker?: string; server?: string; login?: number };
+export type EngineStatus = { running: boolean; connected: boolean; symbol?: string; symbol_ready?: boolean; terminal?: string; broker?: string; server?: string; login?: number };
 
 export function useLiveEngine() {
   const socket = useRef<WebSocket | null>(null);
@@ -65,7 +65,7 @@ export function useLiveEngine() {
           setEngineRunning(true);
         } else if (event.type === "engine_status") {
           setEngineRunning(Boolean(event.payload.running));
-          setEngineStatus(event.payload as EngineStatus);
+          setEngineStatus((current) => ({ ...current, ...(event.payload as EngineStatus) }));
         } else if (event.type === "symbol_results") {
           const value = event.payload as unknown as { items: BrokerSymbol[]; error?: string };
           setSymbols(value.items);

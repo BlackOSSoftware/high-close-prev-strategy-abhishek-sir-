@@ -316,8 +316,9 @@ export function TradingConsole({ view }: { view: "dashboard" | "settings" }) {
               <span><small>BROKER</small><strong>{engineStatus.broker ?? "—"}</strong></span>
               <span><small>SERVER</small><strong>{engineStatus.server ?? "—"}</strong></span>
               <span><small>LOGIN</small><strong>{engineStatus.login ?? "—"}</strong></span>
+              <span><small>STRATEGY SYMBOL</small><strong className={engineStatus.symbol_ready ? "buy" : "sell"}>{engineStatus.symbol_ready ? engineStatus.symbol : "Not selected"}</strong></span>
             </div>
-            <p>{engineStatus.connected ? "MT5 terminal and broker account are ready." : "Open/login to MT5, then use Reconnect MT5. Any connection failure will remain visible in the error panel."}</p>
+            <p>{engineStatus.connected ? engineStatus.symbol_ready ? "MT5 and strategy symbol are ready." : "MT5 is connected. Search and apply an exact broker symbol to start the strategy." : "Open/login to MT5, then use Reconnect MT5. Any connection failure will remain visible in the error panel."}</p>
           </div>
         </section>}
     </main>

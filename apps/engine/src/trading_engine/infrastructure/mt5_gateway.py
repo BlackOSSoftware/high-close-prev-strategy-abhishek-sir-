@@ -16,7 +16,7 @@ class MT5Gateway:
     def __init__(self) -> None:
         self._mt5: Any = None
 
-    def connect(self, symbol: str) -> None:
+    def connect(self) -> None:
         try:
             import MetaTrader5 as mt5
         except ImportError as exc:
@@ -32,8 +32,18 @@ class MT5Gateway:
             raise MT5Error("MT5 terminal is open but not connected to the broker server")
         if account is None:
             raise MT5Error(f"MT5 account is not logged in: {mt5.last_error()}")
-        if not mt5.symbol_select(symbol, True):
-            raise MT5Error(f"Could not select symbol {symbol}: {mt5.last_error()}")
+
+    def select_symbol(self, symbol: str) -> None:
+        if self._mt5 is None:
+            raise MT5Error("MT5 terminal is not connected")
+        info = self._mt5.symbol_info(symbol)
+        if info is None:
+            raise MT5Error(
+                f"Symbol '{symbol}' does not exist on this broker. "
+                "Search and select the exact broker symbol in Settings."
+            )
+        if not self._mt5.symbol_select(symbol, True):
+            raise MT5Error(f"Could not enable symbol '{symbol}': {self._mt5.last_error()}")
 
     def connection_info(self) -> dict[str, Any]:
         terminal = self._mt5.terminal_info()
