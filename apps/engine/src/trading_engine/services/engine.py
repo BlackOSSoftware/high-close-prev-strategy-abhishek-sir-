@@ -70,6 +70,10 @@ class TradingEngine:
         if self._thread:
             self._thread.join(timeout=5)
 
+    def restart(self) -> None:
+        self.stop()
+        self.start()
+
     def update_config(self, config: StrategyConfig) -> None:
         self._commands.put(("config", config))
 
@@ -136,6 +140,7 @@ class TradingEngine:
     def _run(self) -> None:
         try:
             self._gateway.connect(self._config.symbol)
+            connection = self._gateway.connection_info()
             point, digits = self._gateway.symbol_spec(self._config.symbol)
             last_bar = self._gateway.current_bar_time(self._config.symbol, self._config.timeframe)
             latest_candle = self._gateway.last_closed_candle(
@@ -160,7 +165,10 @@ class TradingEngine:
             chart_candles = self._gateway.recent_candles(
                 self._config.symbol, self._config.timeframe
             )
-            self._event("engine_status", {"running": True, "connected": True})
+            self._event(
+                "engine_status",
+                {"running": True, "connected": True, **connection},
+            )
             while not self._stop.is_set():
                 previous_market = (self._config.symbol, self._config.timeframe)
                 self._apply_commands()
@@ -320,7 +328,10 @@ class TradingEngine:
             self._event("engine_error", {"message": str(exc)})
         finally:
             self._gateway.disconnect()
-            self._event("engine_status", {"running": False, "connected": False})
+            self._event(
+                "engine_status",
+                {"running": False, "connected": False},
+            )
 
 
 def timeframe_seconds(timeframe: str) -> int:

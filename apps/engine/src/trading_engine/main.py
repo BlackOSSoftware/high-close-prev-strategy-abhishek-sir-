@@ -89,6 +89,9 @@ async def live(websocket: WebSocket) -> None:
                     engine.close_position(int(message.get("payload", {}).get("ticket", 0)))
                 elif message.get("type") == "request_chart":
                     engine.request_chart(str(message.get("payload", {}).get("timeframe", "M1")))
+                elif message.get("type") == "reconnect_mt5":
+                    await websocket.send_json({"type": "reconnect_started", "payload": {}})
+                    await asyncio.to_thread(engine.restart)
                 receive_task = asyncio.create_task(websocket.receive_text())
             while not outbound.empty():
                 await websocket.send_json(outbound.get_nowait())

@@ -89,7 +89,7 @@ function LiveSignalChart({ dashboard, direction }: { dashboard: NonNullable<Retu
 }
 
 export function TradingConsole({ view }: { view: "dashboard" | "settings" }) {
-  const { connected, config, setConfig, market, engineRunning, dashboard, chartHistory, requestChart, symbols, searchSymbols, closePosition, saveStatus, save, errorNotice, dismissError } = useLiveEngine();
+  const { connected, config, setConfig, market, engineRunning, engineStatus, dashboard, chartHistory, requestChart, symbols, symbolSearchState, symbolSearchError, searchSymbols, closePosition, saveStatus, save, reconnectMt5, errorNotices, dismissError, dismissAllErrors } = useLiveEngine();
   const [symbolOpen, setSymbolOpen] = useState(false);
   const [theme, setTheme] = useState<"day" | "night">("day");
   const [legDrafts, setLegDrafts] = useState<Record<number, StrategyConfig["legs"][number]>>({});
@@ -112,7 +112,7 @@ export function TradingConsole({ view }: { view: "dashboard" | "settings" }) {
     return () => clearTimeout(timer);
   }, [config, searchSymbols, symbolOpen]);
   if (!config) {
-    return <main className="loading">Connecting to local trading engine…{errorNotice && <ErrorPopup title={errorNotice.title} message={errorNotice.message} onClose={dismissError} />}</main>;
+    return <main className="loading">Connecting to local trading engine…{errorNotices.length > 0 && <ErrorPanel notices={errorNotices} onClose={dismissError} onCloseAll={dismissAllErrors} />}</main>;
   }
 
   const patch = (value: Partial<StrategyConfig>) => setConfig({ ...config, ...value });
@@ -160,7 +160,7 @@ export function TradingConsole({ view }: { view: "dashboard" | "settings" }) {
 
   return (
     <div className="app-shell">
-      {errorNotice && <ErrorPopup title={errorNotice.title} message={errorNotice.message} onClose={dismissError} />}
+      {errorNotices.length > 0 && <ErrorPanel notices={errorNotices} onClose={dismissError} onCloseAll={dismissAllErrors} />}
       <aside className="sidebar">
         <div className="brand">
           <span className="brand-mark">P</span>
@@ -243,7 +243,9 @@ export function TradingConsole({ view }: { view: "dashboard" | "settings" }) {
           <div className="fields market-fields">
             <label>Symbol<div className="input-shell symbol-search"><Icon name="symbol"/><input autoComplete="off" value={config.symbol} onFocus={() => { setSymbolOpen(true); searchSymbols(config.symbol); }} onBlur={() => setTimeout(() => setSymbolOpen(false), 150)} onChange={(e) => { patch({ symbol: e.target.value.toUpperCase() }); setSymbolOpen(true); }} />
               {symbolOpen && <div className="symbol-results">
-                {symbols.length === 0 && <div className="symbol-empty">No broker symbols found</div>}
+                {symbolSearchState === "searching" && <div className="symbol-empty">Searching MT5 broker symbols…</div>}
+                {symbolSearchState === "error" && <div className="symbol-empty symbol-error">{symbolSearchError}</div>}
+                {symbolSearchState === "done" && symbols.length === 0 && <div className="symbol-empty">No matching symbol found on this broker</div>}
                 {symbols.map((symbol) => <button key={symbol.name} onMouseDown={(event) => event.preventDefault()} onClick={() => { patch({ symbol: symbol.name }); setSymbolOpen(false); }}>
                   <span><strong>{symbol.name}</strong><small>{symbol.description || "Broker symbol"}</small></span>
                   <em>{symbol.currency}</em>
@@ -304,17 +306,30 @@ export function TradingConsole({ view }: { view: "dashboard" | "settings" }) {
               </article>
             ))}
           </div>
+          <div className={`mt5-connection ${engineStatus.connected ? "online" : "offline"}`}>
+            <div className="mt5-connection-head">
+              <div><span className="mt5-status-dot"/><div><small>MT5 CONNECTION</small><strong>{engineStatus.connected ? "Connected" : "Disconnected"}</strong></div></div>
+              <button type="button" onClick={reconnectMt5} disabled={!connected}>Reconnect MT5</button>
+            </div>
+            <div className="mt5-facts">
+              <span><small>TERMINAL</small><strong>{engineStatus.terminal ?? "—"}</strong></span>
+              <span><small>BROKER</small><strong>{engineStatus.broker ?? "—"}</strong></span>
+              <span><small>SERVER</small><strong>{engineStatus.server ?? "—"}</strong></span>
+              <span><small>LOGIN</small><strong>{engineStatus.login ?? "—"}</strong></span>
+            </div>
+            <p>{engineStatus.connected ? "MT5 terminal and broker account are ready." : "Open/login to MT5, then use Reconnect MT5. Any connection failure will remain visible in the error panel."}</p>
+          </div>
         </section>}
     </main>
     </div>
   );
 }
 
-function ErrorPopup({ title, message, onClose }: { title: string; message: string; onClose: () => void }) {
-  return <div className="error-popup" role="alertdialog" aria-live="assertive" aria-label={title}>
-    <span className="error-popup-icon">!</span>
-    <div><strong>{title}</strong><p>{message}</p></div>
-    <button type="button" onClick={onClose} aria-label="Dismiss error">×</button>
+function ErrorPanel({ notices, onClose, onCloseAll }: { notices: Array<{ id: number; title: string; message: string }>; onClose: (id: number) => void; onCloseAll: () => void }) {
+  const copyError = async (title: string, message: string) => navigator.clipboard.writeText(`${title}\n${message}`);
+  return <div className="error-popup" role="alertdialog" aria-live="assertive" aria-label="Trading engine errors">
+    <div className="error-popup-head"><span className="error-popup-icon">!</span><div><strong>Trading engine errors</strong><small>{notices.length} issue{notices.length === 1 ? "" : "s"} — errors stay until dismissed</small></div><button type="button" onClick={onCloseAll} aria-label="Dismiss all errors">×</button></div>
+    <div className="error-popup-list">{notices.map((notice) => <div className="error-popup-item" key={notice.id}><div><strong>{notice.title}</strong><p>{notice.message}</p></div><div><button type="button" onClick={() => copyError(notice.title, notice.message)}>Copy</button><button type="button" onClick={() => onClose(notice.id)}>Dismiss</button></div></div>)}</div>
   </div>;
 }
 

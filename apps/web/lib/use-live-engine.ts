@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { BrokerSymbol, ChartCandle, DashboardSnapshot, LiveEvent, StrategyConfig } from "./types";
 
 export type EngineNotice = { id: number; title: string; message: string };
+export type EngineStatus = { running: boolean; connected: boolean; terminal?: string; broker?: string; server?: string; login?: number };
 
 export function useLiveEngine() {
   const socket = useRef<WebSocket | null>(null);
@@ -13,14 +14,20 @@ export function useLiveEngine() {
   const [events, setEvents] = useState<LiveEvent[]>([]);
   const [market, setMarket] = useState<{ bid: number; ask: number; trend: "buy" | "sell"; time_msc: number } | null>(null);
   const [engineRunning, setEngineRunning] = useState(false);
+  const [engineStatus, setEngineStatus] = useState<EngineStatus>({ running: false, connected: false });
   const [symbols, setSymbols] = useState<BrokerSymbol[]>([]);
+  const [symbolSearchState, setSymbolSearchState] = useState<"idle" | "searching" | "done" | "error">("idle");
+  const [symbolSearchError, setSymbolSearchError] = useState<string | null>(null);
   const [dashboard, setDashboard] = useState<DashboardSnapshot | null>(null);
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "updated">("idle");
   const [chartHistory, setChartHistory] = useState<{ timeframe: string; candles: ChartCandle[] } | null>(null);
-  const [errorNotice, setErrorNotice] = useState<EngineNotice | null>(null);
+  const [errorNotices, setErrorNotices] = useState<EngineNotice[]>([]);
 
   const showError = useCallback((title: string, message: string) => {
-    setErrorNotice({ id: Date.now(), title, message });
+    setErrorNotices((current) => {
+      if (current.some((notice) => notice.title === title && notice.message === message)) return current;
+      return [{ id: Date.now(), title, message }, ...current].slice(0, 10);
+    });
   }, []);
 
   useEffect(() => {
@@ -30,7 +37,6 @@ export function useLiveEngine() {
       socket.current = ws;
       ws.onopen = () => {
         setConnected(true);
-        setErrorNotice((current) => current?.title === "Connection lost" ? null : current);
       };
       ws.onmessage = ({ data }) => {
         let event: LiveEvent;
@@ -41,10 +47,11 @@ export function useLiveEngine() {
           return;
         }
         if (event.type === "snapshot") {
-          const payload = event.payload as unknown as { config: StrategyConfig; events: LiveEvent[]; engine: { running: boolean }; market: { bid: number; ask: number; trend: "buy" | "sell"; time_msc: number } | null; dashboard: DashboardSnapshot | null };
+          const payload = event.payload as unknown as { config: StrategyConfig; events: LiveEvent[]; engine: EngineStatus; market: { bid: number; ask: number; trend: "buy" | "sell"; time_msc: number } | null; dashboard: DashboardSnapshot | null };
           setConfig(payload.config);
           setEvents(payload.events);
           setEngineRunning(payload.engine.running);
+          setEngineStatus(payload.engine);
           setMarket(payload.market);
           setDashboard(payload.dashboard);
         } else if (event.type === "command_accepted") {
@@ -58,9 +65,12 @@ export function useLiveEngine() {
           setEngineRunning(true);
         } else if (event.type === "engine_status") {
           setEngineRunning(Boolean(event.payload.running));
+          setEngineStatus(event.payload as EngineStatus);
         } else if (event.type === "symbol_results") {
           const value = event.payload as unknown as { items: BrokerSymbol[]; error?: string };
           setSymbols(value.items);
+          setSymbolSearchState(value.error ? "error" : "done");
+          setSymbolSearchError(value.error ?? null);
           if (value.error) showError("Symbol search failed", value.error);
         } else if (event.type === "dashboard_snapshot") {
           setDashboard(event.payload as unknown as DashboardSnapshot);
@@ -102,8 +112,25 @@ export function useLiveEngine() {
   }, []);
 
   const searchSymbols = useCallback((query: string) => {
-    socket.current?.send(JSON.stringify({ type: "search_symbols", payload: { query } }));
-  }, []);
+    if (socket.current?.readyState !== WebSocket.OPEN || !engineStatus.connected) {
+      const message = "MT5 engine is offline. Reconnect MT5 before searching broker symbols.";
+      setSymbolSearchState("error");
+      setSymbolSearchError(message);
+      return;
+    }
+    setSymbolSearchState("searching");
+    setSymbolSearchError(null);
+    socket.current.send(JSON.stringify({ type: "search_symbols", payload: { query } }));
+  }, [engineStatus.connected]);
+
+  const reconnectMt5 = useCallback(() => {
+    if (socket.current?.readyState !== WebSocket.OPEN) {
+      showError("Reconnect unavailable", "Local trading engine is not reachable.");
+      return;
+    }
+    setEngineStatus({ running: false, connected: false });
+    socket.current.send(JSON.stringify({ type: "reconnect_mt5", payload: {} }));
+  }, [showError]);
 
   const closePosition = useCallback((ticket: number) => {
     socket.current?.send(JSON.stringify({ type: "close_position", payload: { ticket } }));
@@ -113,5 +140,5 @@ export function useLiveEngine() {
     socket.current?.send(JSON.stringify({ type: "request_chart", payload: { timeframe } }));
   }, []);
 
-  return { connected, config, setConfig, events, market, engineRunning, dashboard, chartHistory, requestChart, symbols, searchSymbols, closePosition, saveStatus, save, errorNotice, dismissError: () => setErrorNotice(null) };
+  return { connected, config, setConfig, events, market, engineRunning, engineStatus, dashboard, chartHistory, requestChart, symbols, symbolSearchState, symbolSearchError, searchSymbols, closePosition, saveStatus, save, reconnectMt5, errorNotices, dismissError: (id: number) => setErrorNotices((current) => current.filter((notice) => notice.id !== id)), dismissAllErrors: () => setErrorNotices([]) };
 }

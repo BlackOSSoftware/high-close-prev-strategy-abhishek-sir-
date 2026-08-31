@@ -24,8 +24,28 @@ class MT5Gateway:
         self._mt5 = mt5
         if not mt5.initialize():
             raise MT5Error(f"MT5 initialize failed: {mt5.last_error()}")
+        terminal = mt5.terminal_info()
+        account = mt5.account_info()
+        if terminal is None:
+            raise MT5Error(f"MT5 terminal is unavailable: {mt5.last_error()}")
+        if not bool(terminal.connected):
+            raise MT5Error("MT5 terminal is open but not connected to the broker server")
+        if account is None:
+            raise MT5Error(f"MT5 account is not logged in: {mt5.last_error()}")
         if not mt5.symbol_select(symbol, True):
             raise MT5Error(f"Could not select symbol {symbol}: {mt5.last_error()}")
+
+    def connection_info(self) -> dict[str, Any]:
+        terminal = self._mt5.terminal_info()
+        account = self._mt5.account_info()
+        if terminal is None or account is None:
+            raise MT5Error(f"Could not read MT5 connection details: {self._mt5.last_error()}")
+        return {
+            "terminal": str(terminal.name),
+            "broker": str(account.company),
+            "server": str(account.server),
+            "login": int(account.login),
+        }
 
     def disconnect(self) -> None:
         if self._mt5 is not None:
